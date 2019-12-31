@@ -2,11 +2,15 @@
 
  模板：
 
-``` CREATE DATABASE <数据库名称>;  ```
+```sql
+CREATE DATABASE <数据库名称>; 
+```
 
  样例：
 
-``` CREATE DATABASE shop;  ```
+```sql
+ CREATE DATABASE shop; 
+```
 
 - 表的创建（CREATE TABLE语句）  
 
