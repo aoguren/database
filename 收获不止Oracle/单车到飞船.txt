@@ -1,0 +1,91 @@
+
+2.3.2 单车到飞船的经典之旅
+sqlplus lib/lib
+drop table t purge;
+create table t(x int);
+-- 将共享池清空
+alter system flush shared_pool;
+
+
+set timing on
+exec proc1;
+
+select count(*) from t;
+
+create or replace procedure proc1
+as 
+begin 
+	for i in 1 .. 100000
+	loop
+		execute immediate
+		'insert into t values ('||i||')';
+	commit;
+	end loop;
+end;
+/
+
+
+
+select t.sql_text, t.sql_id, t.parse_calls, t.executions
+from v$sql t
+where sql_text like '%insert into t values%';
+
+
+2.3.2.2 绑定变量，摩托速度
+exec proc2;
+create or replace procedure proc2
+as 
+begin 
+	for i in 1 .. 100000
+	loop
+		execute immediate
+		'insert into t values (:x)' using i;
+	commit;
+	end loop;
+end;
+/
+
+
+2.3.2.3 静态改写，汽车速度
+
+create or replace procedure proc3
+as 
+begin 
+	for i in 1 .. 100000
+	loop
+		insert into t values (i);
+	commit;
+	end loop;
+end;
+/
+
+exec proc3;
+
+
+2.3.2.4 批量提交，动车速度
+
+create or replace procedure proc4
+as 
+begin 
+	for i in 1 .. 100000
+	loop
+		insert into t values (i);
+
+	end loop;	
+	commit;
+	
+end;
+/
+
+exec proc4;
+
+2.3.2.5 集合写法，飞机速度
+insert into t select rownum from dual connect by level<=100000;
+
+
+2.3.2.6 直接路径，火箭速度
+create table t as select rownum x from dual connect by level<=100000;
+
+
+2.3.2.7 并行设置，飞船速度
+create table t nologging parallel 16 as select rownum x from dual connect by level<=100000;
