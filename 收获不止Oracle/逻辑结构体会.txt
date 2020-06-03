@@ -1,0 +1,112 @@
+3.2.5 逻辑结构之初次体会
+ 以下试验是通过观察数据库数据字典以及show parameter 参数的方式来实现的。
+ “试验顺序是这样的：先建表空间（数据表空间、临时表空间和回滚段表空间），然后建指定用户，该用户登录后，在指定的表空间建表和建索引。
+ 
+ 3.2.5.1 逻辑结构之block
+sqlplus "/ as sysdba"
+
+show parameter db_block_size
+
+select block_size from dba_tablespaces
+where tablespace_name='SYSTEM';
+
+3.2.5.2 逻辑结构之tablespace
+
+create tablespace TBS_LJB
+datafile 'E:\PS\TBS_LJB_01.DBF' size 100M
+extent management local
+segment space management auto;
+
+col file_name format a50
+set linesize 366
+select file_name, tablespace_name, autoextensible, bytes 
+from dba_data_files
+where tablespace_name = 'TBS_LJB'
+order by substr(file_name, -12);
+
+临时表空间
+create temporary tablespace temp_ljb
+tempfile 'E:\PS\TMP_LJB.DBF' size 100M;
+
+select file_name, tablespace_name, autoextensible, bytes 
+from dba_temp_files
+where tablespace_name = 'TEMP_LJB';
+
+回滚表空间
+create undo tablespace undotbs2
+datafile 'E:\PS\UNDOTBS2.DBF' size 100M;
+
+select file_name, tablespace_name, bytes/1024/1024 
+from dba_data_files
+where tablespace_name = 'UNDOTBS2'
+order by substr(file_name, -12);
+
+
+系统表空间
+select file_name, tablespace_name, autoextensible, bytes/1024/1024 
+from dba_data_files
+where tablespace_name like 'SYS%'
+order by substr(file_name, -12);
+
+系统表空间和用户表空间都属于永久保留内容的表空间
+select tablespace_name, contents
+from dba_tablespaces
+where tablespace_name in ('TBS_LJB', 'TEMP_LJB', 'UNDOTBS2', 'SYSTEM', 'SYSAUX');
+
+3.2.5.3 逻辑结构之user
+sqlplus "/ as sysdba"
+drop user tmp_user cascade;
+
+create user c##tmp_user
+identified by tmp_user
+default tablespace tbs_ljb
+temporary tablespace temp_ljb;
+
+3.2.5.4 逻辑结构之extent
+grant dba to c##tmp_user;
+connect c##tmp_user;
+
+drop table t purge;
+create table t(id int) tablespace tbs_ljb;
+
+select segment_name, extent_id, tablespace_name, bytes/1024/1024, blocks from user_extents where segment_name='T';
+
+insert into t select rownum from dual connect by level<1000000;
+commit;
+select f.segment_name, f.EXTENT_ID, f.BYTES/1024/1024, f.BLOCKS from user_extents f
+where f.segment_name='T';
+
+3.2.5.5 逻辑结构之segment
+drop table t purge;
+create table t(id int) tablespace tbs_ljb;
+
+select f.segment_name, f.segment_type,f.tablespace_name, f.extents, f.BYTES/1024/1024, f.BLOCKS from user_segments f
+where f.segment_name='T';
+
+insert into t select rownum from dual connect by level<1000000;
+commit;
+
+select f.segment_name, f.segment_type,f.tablespace_name, f.extents, f.BYTES/1024/1024, f.BLOCKS from user_segments f
+where f.segment_name='T';
+
+create index idx_id on t(id);
+select f.segment_name, f.segment_type,f.tablespace_name, f.extents, f.BYTES/1024/1024, f.BLOCKS from user_segments f
+where f.segment_name='IDX_ID';
+
+
+3.2.6 逻辑结构之二次体会
+
+
+drop tablespace TBS_LJB
+including contents and datafiles;
+
+
+
+select a.name, b.value from v$statname a, v$mystat b
+where a.statistic#=b.STATISTIC#
+and a.NAME='redo size';
+
+
+
+
+
