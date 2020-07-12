@@ -1,0 +1,261 @@
+select a.name, b.value from v$statname a, v$mystat b
+where a.statistic# = b.statistic#
+and a.name = 'redo size';
+
+
+drop table t purge;
+create table t as select * from dba_objects;
+
+4.2.2.1 表更新日志开销较大
+sqlplus "/ as sysdba"
+grant all on v_$statname to system;
+grant all on v_$mystat to system;
+
+create or replace view v_redo_size as 
+select a.NAME, b.VALUE from v$statname a, v$mystat b
+where a.STATISTIC# = b.STATISTIC#
+and a.NAME = 'redo size';
+
+select * from v_redo_size;
+delete from t;
+select * from v_redo_size;
+
+
+insert into t select * from dba_objects;
+select * from v_redo_size;
+
+4.2.2.2 delete无法释放空间
+drop table t purge;
+create table t as select * from dba_objects;
+set autotrace on
+select count(*) from t;
+set autotrace off
+
+delete from t;
+commit;
+set autotrace on
+select count(*) from t;
+
+truncate table t;
+select count(*) from t;
+
+
+“看来大家观察得都很仔细，这里很明显可以看出，delete 删除并不能释放空间，虽然delete将很多块的记录删除了，但是空块依然保留，Oracle在查询时依然会去查询这些空块。
+而truncate是一种释放高水平位的动作，这些空块被回收，空间也被释放了。
+
+4.2.2.3 表记录太多检索较慢
+drop table t purge;
+create table t as select * from dba_objects where rownum<=200;
+create index idx_obj_id on t(object_id);
+set linesize 1000
+set autotrace traceonly
+select * from t where object_id <= 10;
+
+select object_id from t where object_id <= 10;
+
+4.2.3.1 分析全局临时表的类型
+drop table t_tmp_session purge;
+drop table t_tmp_transaction purge;
+
+create global temporary table t_tmp_session on commit preserve rows as select * from dba_objects
+where 1=2;
+select t.TABLE_NAME, t.TEMPORARY, t.DURATION from user_tables t where t.TABLE_NAME='T_TMP_SESSION';
+
+create global temporary table t_tmp_transaction on commit delete rows as select * from dba_objects
+where 1=2;
+select t.TABLE_NAME, t.TEMPORARY, t.DURATION from user_tables t where t.TABLE_NAME='T_TMP_TRANSACTION';
+
+4.2.3.2 观察各类DML的redo量
+select * from v_redo_size;
+insert into t_tmp_transaction select * from dba_objects;
+select * from v_redo_size;
+
+insert into t_tmp_session select * from dba_objects;
+select * from v_redo_size;
+
+update t_tmp_transaction set object_id = rownum;
+select * from v_redo_size;
+
+update t_tmp_session set object_id = rownum;
+select * from v_redo_size;
+
+delete from t_tmp_session;
+select * from v_redo_size;
+
+delete from t_tmp_transaction;
+select * from v_redo_size;
+
+4.2.3.3 全局临时表的两大重要特性
+基于事务
+select count(*) from t_tmp_transaction;
+select * from v_redo_size;
+
+insert into t_tmp_transaction select * from dba_objects;
+select * from v_redo_size;
+
+commit;
+select * from v_redo_size;
+select count(*) from t_tmp_transaction;
+
+基于会话
+select count(*) from t_tmp_session;
+select * from v_redo_size;
+
+insert into t_tmp_session select * from dba_objects;
+select * from v_redo_size;
+
+commit;
+select count(*) from t_tmp_session;
+select * from v_redo_size;
+
+4.2.4 神通广大的分区表
+4.2.4.1 分区表的类型及原理
+1.范围分区
+drop table range_part_tab purge;
+
+create table range_part_tab(id number, deal_date date, area_code number, contents varchar2(4000))
+partition by range(deal_date)
+(
+partition p1 values less than (TO_DATE('2012-02-01', 'YYYY-MM-DD')),
+partition p2 values less than (TO_DATE('2012-03-01', 'YYYY-MM-DD')),
+partition p3 values less than (TO_DATE('2012-04-01', 'YYYY-MM-DD')),
+partition p4 values less than (TO_DATE('2012-05-01', 'YYYY-MM-DD')),
+partition p5 values less than (TO_DATE('2012-06-01', 'YYYY-MM-DD')),
+partition p6 values less than (TO_DATE('2012-07-01', 'YYYY-MM-DD')),
+partition p7 values less than (TO_DATE('2012-08-01', 'YYYY-MM-DD')),
+partition p8 values less than (TO_DATE('2012-09-01', 'YYYY-MM-DD')),
+partition p9 values less than (TO_DATE('2012-10-01', 'YYYY-MM-DD')),
+partition p10 values less than (TO_DATE('2012-11-01', 'YYYY-MM-DD')),
+partition p11 values less than (TO_DATE('2012-12-01', 'YYYY-MM-DD')),
+partition p12 values less than (TO_DATE('2013-01-01', 'YYYY-MM-DD')),
+partition p_max values less than(maxvalue)
+);
+
+insert into range_part_tab(id, deal_date, area_code, contents)
+select rownum, to_date(to_char(sysdate-365, 'J')+trunc(dbms_random.value(0,365)),'J'),
+ceil(dbms_random.value(590,599)),
+rpad('*',400,'*')
+from dual
+connect by rownum <= 100000;
+
+2.列表分区
+drop table list_part_tab purge;
+create table list_part_tab(id number, deal_date date, area_code number, contents varchar2(4000))
+partition by list(area_code)
+(
+partition p591 values (591),
+partition p592 values (592),
+partition p593 values (593),
+partition p594 values (594),
+partition p595 values (595),
+partition p596 values (596),
+partition p597 values (597),
+partition p598 values (598),
+partition p599 values (599),
+partition p_other values (default)
+);
+
+insert into list_part_tab(id, deal_date, area_code, contents)
+select rownum, to_date(to_char(sysdate-365, 'J')+trunc(dbms_random.value(0,365)),'J'),
+ceil(dbms_random.value(590,599)),
+rpad('*',400,'*')
+from dual
+connect by rownum <= 100000;
+
+3.散列分区
+drop table hash_part_tab purge;
+create table hash_part_tab(id number, deal_date date, area_code number, contents varchar2(4000))
+partition by hash(deal_date) partitions 12;
+
+insert into hash_part_tab(id, deal_date, area_code, contents)
+select rownum, to_date(to_char(sysdate-365, 'J')+trunc(dbms_random.value(0,365)),'J'),
+ceil(dbms_random.value(590,599)),
+rpad('*',400,'*')
+from dual
+connect by rownum <= 100000;
+
+4.组合分区
+drop table range_list_part_tab purge;
+create table range_list_part_tab(id number, deal_date date, area_code number, contents varchar2(4000))
+partition by range(deal_date) subpartition by list(area_code) subpartition template
+(
+subpartition p591 values (591),
+subpartition p592 values (592),
+subpartition p593 values (593),
+subpartition p594 values (594),
+subpartition p595 values (595),
+subpartition p596 values (596),
+subpartition p597 values (597),
+subpartition p598 values (598),
+subpartition p599 values (599),
+subpartition p_other values (default)
+)
+(partition p1 values less than (TO_DATE('2012-02-01', 'YYYY-MM-DD')),
+partition p2 values less than (TO_DATE('2012-03-01', 'YYYY-MM-DD')),
+partition p3 values less than (TO_DATE('2012-04-01', 'YYYY-MM-DD')),
+partition p4 values less than (TO_DATE('2012-05-01', 'YYYY-MM-DD')),
+partition p5 values less than (TO_DATE('2012-06-01', 'YYYY-MM-DD')),
+partition p6 values less than (TO_DATE('2012-07-01', 'YYYY-MM-DD')),
+partition p7 values less than (TO_DATE('2012-08-01', 'YYYY-MM-DD')),
+partition p8 values less than (TO_DATE('2012-09-01', 'YYYY-MM-DD')),
+partition p9 values less than (TO_DATE('2012-10-01', 'YYYY-MM-DD')),
+partition p10 values less than (TO_DATE('2012-11-01', 'YYYY-MM-DD')),
+partition p11 values less than (TO_DATE('2012-12-01', 'YYYY-MM-DD')),
+partition p12 values less than (TO_DATE('2013-01-01', 'YYYY-MM-DD')),
+partition p_max values less than(maxvalue)
+);
+
+insert into range_list_part_tab(id, deal_date, area_code, contents)
+select rownum, to_date(to_char(sysdate-365, 'J')+trunc(dbms_random.value(0,365)),'J'),
+ceil(dbms_random.value(590,599)),
+rpad('*',400,'*')
+from dual
+connect by rownum <= 100000;
+
+
+5.分区原理
+drop table norm_tab purge;
+create table norm_tab(id number, deal_date date, area_code number, contents varchar2(4000));
+insert into norm_tab(id, deal_date, area_code, contents)
+select rownum, to_date(to_char(sysdate-365, 'J')+trunc(dbms_random.value(0,365)),'J'),
+ceil(dbms_random.value(590,599)),
+rpad('*',400,'*')
+from dual
+connect by rownum <= 100000;
+
+select u.segment_name, u.partition_name, u.segment_type, u.BYTES/1024/1024 "字节数(M)" ,u.tablespace_name
+from user_segments u where u.segment_name in ('RANGE_PART_TAB', 'NORM_TAB')
+
+select u.segment_name, u.partition_name, u.segment_type, u.BYTES/1024/1024 "字节数(M)" ,u.tablespace_name
+from user_segments u where u.segment_name in ('HASH_PART_TAB', 'NORM_TAB')
+
+4.2.4.2 分区表最实用的特性
+1.高效的分区消除
+2.强大的分区操作
+（1）分区truncate好快捷
+（2）分区数据转移很神奇
+（3）分区切割你想分就分
+（4）分区合并你想合就合
+（5）分区增与删非常简单
+
+4.2.4.3 分区索引类型简述
+1.全局索引
+2.局部索引
+
+4.2.4.4 分区表之相关陷阱
+1.索引缘何频频失效
+2.有索引效率反而更低
+3.无法应用分区条件
+
+
+
+
+
+
+
+
+
+
+
+
+

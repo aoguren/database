@@ -1,0 +1,42 @@
+5.2.1.5 妙用三特征之高度较低
+1.索引高度较低验证
+drop table t1 purge;
+drop table t2 purge;
+drop table t3 purge;
+drop table t4 purge;
+drop table t5 purge;
+drop table t6 purge;
+create table t1 as select rownum as id, rownum+1 as id2 from dual connect by level<=5;
+create table t2 as select rownum as id, rownum+1 as id2 from dual connect by level<=50;
+create table t3 as select rownum as id, rownum+1 as id2 from dual connect by level<=500;
+create table t4 as select rownum as id, rownum+1 as id2 from dual connect by level<=5000;
+create table t5 as select rownum as id, rownum+1 as id2 from dual connect by level<=50000;
+create table t6 as select rownum as id, rownum+1 as id2 from dual connect by level<=500000;
+create table t7 as select rownum as id, rownum+1 as id2 from dual connect by level<=5000000;
+
+create index idx_id_t1 on t1(id);
+create index idx_id_t2 on t2(id);
+create index idx_id_t3 on t3(id);
+create index idx_id_t4 on t4(id);
+create index idx_id_t5 on t5(id);
+create index idx_id_t6 on t6(id);
+
+观察这些索引的大小，差别很大
+select s.segment_name, s.BYTES/1024 from user_segments s
+where s.segment_name in ('IDX_ID_T1','IDX_ID_T2','IDX_ID_T3','IDX_ID_T4','IDX_ID_T5','IDX_ID_T6');
+
+但是在统计索引高度时，我们观察发现这些索引的高度相差无几
+select u.INDEX_NAME, u.blevel, u.LEAF_BLOCKS, u.NUM_ROWS, u.DISTINCT_KEYS, u.CLUSTERING_FACTOR from user_ind_statistics u
+where u.TABLE_NAME in ('T1','T2','T3','T4','T5','T6');
+
+2.妙用索引高度较低的特性
+
+
+3.分区索引设计误区
+
+
+5.2.1.6 巧用三特征之存储列值
+
+1.COUNT（*）优化
+（1）考虑用索引，理论很完美
+
